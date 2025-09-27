@@ -1,0 +1,3 @@
+function byebye() {
+  FunctionSet.byebye();
+}

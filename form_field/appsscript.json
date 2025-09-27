@@ -1,0 +1,13 @@
+{
+  "timeZone": "Asia/Yangon",
+  "dependencies": {
+    "libraries": [{
+      "userSymbol": "FunctionSet",
+      "libraryId": "1LCMQVuDk-GznjUvO637F0szJKo5jrdEISSaCLJkg2atIiItWuGw-1YzD",
+      "version": "0",
+      "developmentMode": true
+    }]
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8"
+}
