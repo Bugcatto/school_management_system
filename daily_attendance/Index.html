@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    html, body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f4f4f4;
+    }
+    
+    h1 {
+      color: #333;
+      margin: 10px 0;
+      font-size: 4vw; /* Original font size */
+    }
+    
+    #qrCode {
+      display: block;
+      margin: 10px auto;
+      width: 60vw; /* Double the initial QR code size */
+      height: 60vw; /* Maintain aspect ratio */
+      border: 2px solid #ddd;
+      padding: 10px;
+      background-color: #fff;
+    }
+    
+    .container {
+      text-align: center;
+      padding: 0;
+    }
+    
+    /* Slanted text style */
+    .slanted-text {
+      color: #666;
+      font-size: 3vw; /* Original text size */
+      font-style: italic;
+      margin: 10px 0;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 600px) {
+      h1 {
+        font-size: 6vw; /* Adjust font size for small screens */
+      }
+      
+      .slanted-text {
+        font-size: 4vw; /* Adjust slanted text size for small screens */
+      }
+      
+      #qrCode {
+        width: 80vw; /* Adjust QR code size for small screens */
+        height: 80vw; /* Maintain aspect ratio */
+      }
+    }
+    
+    /* Portrait view adjustments */
+    @media only screen and (orientation: portrait) {
+      h1 {
+        font-size: 5vw; /* Adjust font size for portrait */
+      }
+      
+      .slanted-text {
+        font-size: 3.5vw; /* Adjust slanted text size for portrait */
+      }
+      
+      #qrCode {
+        width: 70vw; /* Adjust QR code size for portrait */
+        height: 70vw; /* Maintain aspect ratio */
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>QR Code Generator</h1>
+    <p class="slanted-text">Make sure to log in with your own email</p>
+    <img id="qrCode" src="" alt="QR Code">
+  </div>
+  <script>
+    function loadQRCode() {
+      console.log('loadQRCode function called');
+      
+      google.script.run.withSuccessHandler(function(url) {
+        console.log('QR Code URL received:', url);
+        document.getElementById('qrCode').src = url;
+      }).getQRCodeUrl();
+    }
+    
+    window.onload = function() {
+      console.log('Window loaded, calling loadQRCode');
+      loadQRCode();
+    };
+  </script>
+</body>
+</html>
