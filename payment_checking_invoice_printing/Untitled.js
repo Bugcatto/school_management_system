@@ -1,0 +1,3 @@
+function SetAccess() {
+  FunctionSet.setAccess();
+}
