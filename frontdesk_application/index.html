@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family:"Segoe UI", Roboto, Arial, sans-serif; margin:20px; background:#f9fafb; color:#333; }
+    h2 { margin-bottom:15px; color:#202124; }
+    label { font-weight:500; margin-right:8px; }
+    select, input[type="text"], input[type="date"] {
+      padding:6px 10px; margin:6px 0; border:1px solid #ccc; border-radius:6px; font-size:14px; background:#fff;
+    }
+    .controls { margin-bottom:15px; padding:12px; background:#fff; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.05); }
+
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; margin-top:15px; box-shadow:0 2px 6px rgba(0,0,0,0.05); background:#fff; border-radius:8px; overflow:hidden; }
+    th, td { padding:10px 12px; text-align:left; border-bottom:1px solid #eee; font-size:14px; white-space:nowrap; }
+    th { background:#f3f4f6; user-select:none; font-weight:600; color:#444; position:sticky; top:0; z-index:2; }
+    th.sortable { cursor:pointer; }
+    th:hover { background:#e5e7eb; }
+    tr:hover td { background:#fafafa; }
+    td:first-child, th:first-child { position:sticky; left:0; background:#f9fafb; z-index:3; font-weight:600; }
+    .arrow { font-size:11px; color:#666; margin-left:6px; }
+    .btn { margin-top:15px; padding:10px 18px; background:#2563eb; color:#fff; border:none; border-radius:6px; font-size:15px; cursor:pointer; transition:background .2s; }
+    .btn:hover { background:#1e40af; }
+    .status { margin-top:10px; font-size:13px; color:#555; }
+
+    /* Loading overlay */
+    .overlay {
+      position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+      background:rgba(255,255,255,.6); backdrop-filter:saturate(140%) blur(2px); z-index:9999;
+      font-weight:600; color:#1e3a8a;
+    }
+    .spinner {
+      width:28px; height:28px; border:3px solid #d1d5db; border-top-color:#2563eb; border-radius:50%; animation:spin .9s linear infinite; margin-right:10px;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .err { color:#b91c1c; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="overlay" id="overlay"><div class="spinner"></div>Loading…</div>
+
+  <h2>Attendance Management</h2>
+
+  <div class="controls">
+    <div>
+      <label>Course:</label>
+      <select id="course"></select>
+    </div>
+    <div>
+      <label>Session Date:</label>
+      <input type="date" id="sessionDate">
+    </div>
+    <div>
+      <label>Session Label:</label>
+      <input type="text" id="sessionLabel" placeholder="AM/PM/Evening">
+    </div>
+    <div class="status" id="statusMsg"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="studentTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th class="sortable" data-col="ID"    onclick="sortBy('ID')">ID<span class="arrow"></span></th>
+          <th class="sortable" data-col="Name"  onclick="sortBy('Name')">Name<span class="arrow"></span></th>
+          <th class="sortable" data-col="Email" onclick="sortBy('Email')">Email<span class="arrow"></span></th>
+          <th class="sortable" data-col="Phone" onclick="sortBy('Phone')">Phone<span class="arrow"></span></th>
+          <th>Attendance</th>
+          <th>Remark</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <button class="btn" onclick="submitAttendance()">Submit Attendance</button>
+
+  <script>
+    // --- state ---
+    let students = [];           // current rows
+    let sortCol = null;          // which column
+    let sortAsc = true;          // sort direction
+    const drafts = new Map();    // ID -> {Attendance, Remark}
+
+    // --- helpers ---
+    const $ = (id) => document.getElementById(id);
+    const show = (el) => el.style.display = 'flex';
+    const hide = (el) => el.style.display = 'none';
+    const overlay = $('overlay');
+    const statusMsg = $('statusMsg');
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    const escAttr = esc;
+
+    function setStatus(msg, isErr=false){
+      statusMsg.innerHTML = isErr ? `<span class="err">${esc(msg)}</span>` : esc(msg);
+    }
+
+    // --- load courses ---
+    function init() {
+      setStatus('Loading courses…');
+      show(overlay);
+      google.script.run
+        .withSuccessHandler(courses => {
+          const sel = $('course');
+          sel.innerHTML = '<option value="">--Select--</option>';
+          courses.forEach(c => sel.innerHTML += `<option value="${escAttr(c)}">${esc(c)}</option>`);
+          sel.onchange = onCourseChange;
+          setStatus('Select a course to load students.');
+          hide(overlay);
+        })
+        .withFailureHandler(err => {
+          setStatus(`Failed to load courses: ${err && err.message ? err.message : err}`, true);
+          hide(overlay);
+        })
+        .getCourses();
+    }
+
+    function onCourseChange() {
+      const course = $('course').value;
+      if (!course) { $('studentTable').querySelector('tbody').innerHTML = ''; return; }
+      drafts.clear(); // new course => clear previous edits
+      setStatus(`Loading students for ${course}…`);
+      show(overlay);
+      google.script.run
+        .withSuccessHandler(data => {
+          setStatus(`Loaded ${data.length} students for ${course}.`);
+          sortCol = 'Name'; sortAsc = true;
+          students = data.slice().sort((a,b)=>String(a.Name||'').localeCompare(String(b.Name||'')));
+          updateSortIndicators();
+          renderTable(); // render from state
+          hide(overlay);
+        })
+        .withFailureHandler(err => {
+          setStatus(`Failed to load students: ${err && err.message ? err.message : err}`, true);
+          hide(overlay);
+        })
+        .getStudentsByCourse(course);
+    }
+
+    // --- draft capture (preserve edits across sorts) ---
+    function captureDraft(i) {
+      const s = students[i]; if (!s) return;
+      const att = document.getElementById(`att-${i}`)?.value || '';
+      const rem = document.getElementById(`rem-${i}`)?.value || '';
+      if (att || rem) drafts.set(s.ID, { Attendance: att, Remark: rem });
+      else drafts.delete(s.ID);
+    }
+    function rememberDrafts() {
+      students.forEach((s,i) => {
+        const attEl = document.getElementById(`att-${i}`);
+        const remEl = document.getElementById(`rem-${i}`);
+        if (attEl || remEl) {
+          const att = attEl?.value || '';
+          const rem = remEl?.value || '';
+          if (att || rem) drafts.set(s.ID, { Attendance: att, Remark: rem });
+        }
+      });
+    }
+
+    // --- render TBODY only ---
+    function renderTable() {
+      const tbody = document.querySelector('#studentTable tbody');
+      tbody.innerHTML = '';
+      students.forEach((s,i) => {
+        const d = drafts.get(s.ID) || {};
+        const selVal = d.Attendance || s.Attendance || '';
+        const remVal = d.Remark || s.Remark || '';
+        tbody.insertAdjacentHTML('beforeend', `
+          <tr>
+            <td>${i+1}</td>
+            <td>${esc(s.ID)}</td>
+            <td>${esc(s.Name)}</td>
+            <td>${esc(s.Email)}</td>
+            <td>${esc(s.Phone)}</td>
+            <td>
+              <select id="att-${i}" onchange="captureDraft(${i})">
+                <option value="" ${selVal===''?'selected':''}>-</option>
+                <option value="Pass" ${selVal==='Pass'?'selected':''}>Pass</option>
+                <option value="Leave" ${selVal==='Leave'?'selected':''}>Leave</option>
+                <option value="Don't Pickup" ${selVal==="Don't Pickup"?'selected':''}>Don't Pickup</option>
+                <option value="Viber Message" ${selVal==='Viber Message'?'selected':''}>Viber Message</option>
+                <option value="Absent" ${selVal==='Absent'?'selected':''}>Absent</option>
+              </select>
+            </td>
+            <td><input id="rem-${i}" type="text" value="${escAttr(remVal)}" oninput="captureDraft(${i})" placeholder="Remark..."></td>
+          </tr>
+        `);
+      });
+    }
+
+    // --- sort ---
+    function updateSortIndicators() {
+      const cols = ['ID','Name','Email','Phone'];
+      cols.forEach(c => {
+        const span = document.querySelector(`th[data-col="${c}"] .arrow`);
+        if (!span) return;
+        span.textContent = (sortCol === c) ? (sortAsc ? '▲' : '▼') : '';
+      });
+    }
+    function sortBy(col) {
+      rememberDrafts();
+      if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+      students.sort((a,b) => {
+        const A = (a[col] ?? '').toString().toLowerCase();
+        const B = (b[col] ?? '').toString().toLowerCase();
+        return sortAsc ? A.localeCompare(B) : B.localeCompare(A);
+      });
+      updateSortIndicators();
+      renderTable();
+    }
+
+    // --- submit ---
+    function submitAttendance() {
+      rememberDrafts();
+      const course = $('course').value;
+      const sessionDate = $('sessionDate').value;
+      const sessionLabel = $('sessionLabel').value;
+      if (!course || !sessionDate) { alert("Please select course and session date."); return; }
+
+      const records = students.map((s,i) => {
+        const d = drafts.get(s.ID) || {};
+        const att = document.getElementById(`att-${i}`)?.value || d.Attendance || '';
+        const rem = document.getElementById(`rem-${i}`)?.value || d.Remark || '';
+        return { ID:s.ID, Name:s.Name, Email:s.Email, Phone:s.Phone, Attendance:att, Remark:rem };
+      });
+
+      setStatus('Saving attendance…');
+      show(overlay);
+      google.script.run
+        .withSuccessHandler(() => {
+          setStatus('Attendance saved successfully.');
+          drafts.clear();
+          hide(overlay);
+          alert("Attendance saved!");
+        })
+        .withFailureHandler(err => {
+          setStatus(`Save failed: ${err && err.message ? err.message : err}`, true);
+          hide(overlay);
+          alert(`Save failed: ${err && err.message ? err.message : err}`);
+        })
+        .saveAttendance({ sessionDate, sessionLabel, course, records, markedBy: null });
+    }
+
+    // boot
+    init();
+  </script>
+</body>
+</html>
